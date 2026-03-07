@@ -1,0 +1,10 @@
+brainflow
+numpy
+scipy
+torch
+scikit-learn
+flask
+requests
+keyboard
+pandas
+matplotlib

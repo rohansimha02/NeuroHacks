@@ -28,7 +28,7 @@ from scipy.signal import butter, filtfilt, iirnotch
 # =============================================================================
 # SETTINGS
 # =============================================================================
-SAMPLE_RATE    = 250          # Hz — must match collect.py
+SAMPLE_RATE    = 250          # Hz — Cyton default, must match collect.py
 BANDPASS_LOW   = 20           # Hz — lower cutoff (removes motion artifact)
 BANDPASS_HIGH  = 450          # Hz — upper cutoff (removes high-freq noise)
 NOTCH_FREQ     = 60           # Hz — US power line noise

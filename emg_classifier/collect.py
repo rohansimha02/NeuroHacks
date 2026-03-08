@@ -27,12 +27,14 @@ from brainflow.data_filter import DataFilter
 # =============================================================================
 # Connects directly to the Cyton board via its USB dongle serial port.
 # Close the OpenBCI GUI before running — it holds the serial port.
-SERIAL_PORT    = "COM4"           # OpenBCI Cyton USB dongle
+SERIAL_PORT    = "/dev/tty.usbserial-DM00D0GN"  # <-- set your Cyton USB dongle port
 SAMPLE_RATE    = 250              # Hz — Cyton default
 RECORD_SECONDS = 2                # Duration per sample in seconds
 N_SAMPLES      = 50               # Number of samples to collect per movement
 TEST_SAMPLES   = 3                # Samples per movement in --test mode
-CH_IDX         = 1                # BrainFlow index for N1P (single channel)
+CH_1_IDX       = 1                # BrainFlow index for N1P
+CH_2_IDX       = 2                # BrainFlow index for N2P
+CH_3_IDX       = 3                # BrainFlow index for N3P
 COUNTDOWN_SECS = 3                # Seconds to count down before recording
 
 MOVEMENTS = ['strong_grip', 'wrist_extension', 'finger_spread']
@@ -46,6 +48,8 @@ def connect_board() -> BoardShim:
     Connect directly to the OpenBCI Cyton board via its USB dongle serial port.
 
     The OpenBCI GUI must be closed so it doesn't hold the serial port.
+    On macOS the port looks like: /dev/tty.usbserial-DM00D0GN
+    On Windows it looks like: COM3
 
     Returns:
         An initialized and streaming BoardShim instance.
@@ -54,30 +58,29 @@ def connect_board() -> BoardShim:
         SystemExit: If the board cannot be reached.
     """
     params = BrainFlowInputParams()
-    if SERIAL_PORT:
-        params.serial_port = SERIAL_PORT
+    params.serial_port = SERIAL_PORT
 
     board = BoardShim(BoardIds.CYTON_BOARD.value, params)
 
     try:
         board.prepare_session()
         board.start_stream()
-        port = SERIAL_PORT or "(auto-detected)"
-        print(f"  Connected to Cyton board on {port}")
+        print(f"  Connected to Cyton board on {SERIAL_PORT}")
         time.sleep(2)  # Let the buffer fill before reading
         return board
     except Exception as e:
         print(f"\n[ERROR] Could not connect to Cyton board.")
         print("  -> Is the USB dongle plugged in?")
         print("  -> Is the OpenBCI GUI closed? (It holds the serial port)")
-        print("  -> Try setting SERIAL_PORT = 'COM3' (or your port) in collect.py")
+        print(f"  -> Set SERIAL_PORT in collect.py (currently: '{SERIAL_PORT}')")
+        print("  -> macOS: check /dev/tty.usbserial-* | Windows: check Device Manager")
         print(f"  -> BrainFlow error: {e}")
         sys.exit(1)
 
 
 def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
     """
-    Record exactly n_samples of raw EMG data from channel 1 (N1P).
+    Record exactly n_samples of raw EMG data from channels 1, 2, and 3.
 
     Clears the buffer before recording, then waits until enough new samples
     have accumulated.
@@ -87,7 +90,7 @@ def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
         n_samples: Number of samples to record (e.g. 500 for 2 seconds at 250 Hz).
 
     Returns:
-        NumPy array of shape (n_samples,).
+        NumPy array of shape (n_samples, 3) — columns are [ch1, ch2, ch3].
     """
     # Flush any stale data in the ring buffer
     board.get_board_data()
@@ -105,7 +108,10 @@ def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
         time.sleep(0.01)
 
     data = board.get_board_data()          # shape: (n_board_channels, n_samples)
-    return data[CH_IDX, -n_samples:]  # shape: (n_samples,)
+    ch1 = data[CH_1_IDX, -n_samples:]
+    ch2 = data[CH_2_IDX, -n_samples:]
+    ch3 = data[CH_3_IDX, -n_samples:]
+    return np.stack([ch1, ch2, ch3], axis=1)  # shape: (n_samples, 3)
 
 
 def wait_for_space(prompt: str) -> None:
@@ -142,7 +148,7 @@ def run_collection_session(n_samples_per_movement: int) -> list:
         n_samples_per_movement: How many 2-second recordings to capture per class.
 
     Returns:
-        List of dicts with keys: sample_index, channel_1, label.
+        List of dicts with keys: sample_index, channel_1, channel_2, channel_3, label.
         Each row is one sample (one time step within a recording window).
     """
     board = connect_board()
@@ -171,7 +177,9 @@ def run_collection_session(n_samples_per_movement: int) -> list:
                 for step in range(len(window)):
                     all_rows.append({
                         "sample_index": global_sample_idx,
-                        "channel_1":    window[step],
+                        "channel_1":    window[step, 0],
+                        "channel_2":    window[step, 1],
+                        "channel_3":    window[step, 2],
                         "label":        movement,
                     })
                 global_sample_idx += 1
@@ -206,7 +214,7 @@ def save_session(rows: list) -> str:
     filename = f"session_{timestamp}.csv"
     filepath = os.path.join(DATA_RAW_DIR, filename)
 
-    fieldnames = ["sample_index", "channel_1", "label"]
+    fieldnames = ["sample_index", "channel_1", "channel_2", "channel_3", "label"]
     with open(filepath, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -231,7 +239,7 @@ def main():
     print(f"  Movements : {MOVEMENTS}")
     print(f"  Samples   : {n_samples} per movement")
     print(f"  Duration  : {RECORD_SECONDS}s per sample")
-    print(f"  Serial     : {SERIAL_PORT or 'auto-detect'}")
+    print(f"  Port      : {SERIAL_PORT}")
     if args.test:
         print("  [TEST MODE ACTIVE]")
     print("="*50 + "\n")

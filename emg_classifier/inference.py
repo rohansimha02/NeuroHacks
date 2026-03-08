@@ -35,16 +35,14 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 # =============================================================================
 # SETTINGS
 # =============================================================================
-# BrainFlow STREAMING_BOARD reads from the OpenBCI GUI's multicast stream.
-# In the GUI: Networking widget -> Protocol: UDP, IP: 225.1.1.1, Port: 6677
-MULTICAST_IP          = "225.1.1.1"
-MULTICAST_PORT        = 6677
-MASTER_BOARD          = 0               # 0 = CYTON_BOARD — data format hint
+# Connects directly to the Cyton board via its USB dongle — must match collect.py.
+# macOS: /dev/tty.usbserial-* | Windows: COM3 (check Device Manager)
+SERIAL_PORT           = "/dev/tty.usbserial-DM00D0GN"  # <-- set your Cyton USB dongle port
 CONFIDENCE_THRESHOLD  = 0.85            # Minimum softmax probability to fire an event
 INFERENCE_INTERVAL    = 0.1             # Seconds between classification attempts
-CH_1_IDX              = 1              # BrainFlow channel index for N1P
-CH_2_IDX              = 2              # BrainFlow channel index for N2P
-CH_3_IDX              = 3              # BrainFlow channel index for N3P
+CH_1_IDX              = 1              # BrainFlow channel index for channel 1
+CH_2_IDX              = 2              # BrainFlow channel index for channel 2
+CH_3_IDX              = 3              # BrainFlow channel index for channel 3
 
 MODELS_DIR     = os.path.join(os.path.dirname(__file__), "models")
 MODEL_PATH     = os.path.join(MODELS_DIR, "emg_classifier.pt")
@@ -94,34 +92,30 @@ def load_model(model_path: str, label_map_path: str, device: torch.device) -> tu
 
 def connect_board() -> BoardShim:
     """
-    Connect to the OpenBCI GUI's multicast stream via BrainFlow STREAMING_BOARD.
-
-    Requires the OpenBCI GUI to be running with the Networking widget set to:
-    Protocol=UDP, IP=225.1.1.1, Port=6677, and data stream started.
+    Connect to the OpenBCI Ganglion board via Bluetooth LE.
 
     Returns:
         Active BoardShim instance.
 
     Raises:
-        SystemExit: If the stream cannot be reached.
+        SystemExit: If the board cannot be reached.
     """
     params = BrainFlowInputParams()
-    params.ip_address   = MULTICAST_IP
-    params.ip_port      = MULTICAST_PORT
-    params.master_board = MASTER_BOARD
+    params.serial_port = SERIAL_PORT
 
-    board = BoardShim(BoardIds.STREAMING_BOARD.value, params)
+    board = BoardShim(BoardIds.CYTON_BOARD.value, params)
     try:
         board.prepare_session()
         board.start_stream()
-        print(f"  Connected to OpenBCI GUI stream at {MULTICAST_IP}:{MULTICAST_PORT}")
+        print(f"  Connected to Cyton board on {SERIAL_PORT}")
         time.sleep(2)  # Let the buffer fill
         return board
     except Exception as e:
-        print(f"\n[ERROR] Could not connect to OpenBCI GUI stream at {MULTICAST_IP}:{MULTICAST_PORT}.")
-        print("  -> Is the OpenBCI GUI open and streaming?")
-        print("  -> Networking widget: Protocol=UDP, IP=225.1.1.1, Port=6677")
-        print("  -> Make sure you clicked 'Start Data Stream' in the GUI.")
+        print(f"\n[ERROR] Could not connect to Cyton board.")
+        print("  -> Is the USB dongle plugged in?")
+        print("  -> Is the OpenBCI GUI closed? (It holds the serial port)")
+        print(f"  -> Set SERIAL_PORT in inference.py (currently: '{SERIAL_PORT}')")
+        print("  -> macOS: check /dev/tty.usbserial-* | Windows: check Device Manager")
         print(f"  -> BrainFlow error: {e}")
         sys.exit(1)
 
@@ -211,7 +205,7 @@ def main():
     print("\n" + "="*50)
     print("  EMG REAL-TIME INFERENCE")
     print(f"  Device            : {device}")
-    print(f"  Stream            : {MULTICAST_IP}:{MULTICAST_PORT} (OpenBCI GUI)")
+    print(f"  Board             : Cyton ({SERIAL_PORT})")
     print(f"  Confidence thresh : {CONFIDENCE_THRESHOLD:.0%}")
     print(f"  Inference interval: {INFERENCE_INTERVAL}s")
     print("="*50 + "\n")

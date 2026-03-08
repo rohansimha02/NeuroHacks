@@ -10,6 +10,7 @@ How it works:
   3. Every INFERENCE_INTERVAL seconds, grab the latest WINDOW_SIZE samples
   4. Filter (bandpass + notch) and run through the model
   5. Always fire handle_prediction() with the top class regardless of confidence
+  5. Always fire handle_prediction() with the top class regardless of confidence
 
 Press Ctrl+C to stop. A session summary is printed on exit.
 
@@ -90,6 +91,7 @@ def load_model(model_path: str, label_map_path: str, device: torch.device) -> tu
 def connect_board() -> BoardShim:
     """
     Connect to the OpenBCI Cyton board via its USB dongle serial port.
+    Connect to the OpenBCI Cyton board via its USB dongle serial port.
 
     Returns:
         Active BoardShim instance.
@@ -129,6 +131,7 @@ def get_latest_window(board: BoardShim) -> np.ndarray | None:
 
     Returns:
         Array of shape (WINDOW_SIZE, 1) or None if not enough data yet.
+        Array of shape (WINDOW_SIZE, 1) or None if not enough data yet.
     """
     if board.get_board_data_count() < WINDOW_SIZE:
         return None
@@ -143,6 +146,7 @@ def filter_window(window: np.ndarray) -> np.ndarray:
     Apply bandpass + notch filter, then z-score normalize a single window.
 
     Args:
+        window: Array of shape (WINDOW_SIZE, 1).
         window: Array of shape (WINDOW_SIZE, 1).
 
     Returns:
@@ -168,6 +172,7 @@ def classify_window(
 
     Args:
         window:    Filtered array of shape (WINDOW_SIZE, 1).
+        window:    Filtered array of shape (WINDOW_SIZE, 1).
         model:     Loaded EMGClassifier.
         label_map: {int: str} mapping from integer class to movement name.
         device:    Torch device.
@@ -181,6 +186,7 @@ def classify_window(
         probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
 
     top_class  = int(np.argmax(probs))
+    top_class  = int(np.argmax(probs))
     confidence = float(probs[top_class])
     movement   = label_map.get(top_class, f"class_{top_class}")
     return movement, confidence
@@ -188,6 +194,7 @@ def classify_window(
 
 def handle_prediction(movement: str, confidence: float) -> None:
     """
+    Fire every interval: print the prediction and post to the hub.
     Fire every interval: print the prediction and post to the hub.
 
     Args:
@@ -205,6 +212,7 @@ def main():
     print("  EMG REAL-TIME INFERENCE")
     print(f"  Device            : {device}")
     print(f"  Board             : Cyton ({SERIAL_PORT})")
+    print(f"  Inference interval: {INFERENCE_INTERVAL}s (fires every interval)")
     print(f"  Inference interval: {INFERENCE_INTERVAL}s (fires every interval)")
     print("="*50 + "\n")
 

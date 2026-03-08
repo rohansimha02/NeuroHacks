@@ -37,7 +37,7 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 # =============================================================================
 # Connects directly to the Cyton board via its USB dongle — must match collect.py.
 # macOS: /dev/tty.usbserial-* | Windows: COM3 (check Device Manager)
-SERIAL_PORT           = "/dev/tty.usbserial-DM00D0GN"  # <-- set your Cyton USB dongle port
+SERIAL_PORT           = "COM4"  # <-- set your Cyton USB dongle port
 CONFIDENCE_THRESHOLD  = 0.85            # Minimum softmax probability to fire an event
 INFERENCE_INTERVAL    = 0.1             # Seconds between classification attempts
 CH_1_IDX              = 1              # BrainFlow channel index for channel 1

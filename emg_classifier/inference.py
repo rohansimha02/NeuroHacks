@@ -41,8 +41,6 @@ SERIAL_PORT           = "/dev/tty.usbserial-DM00D0GN"  # <-- set your Cyton USB 
 CONFIDENCE_THRESHOLD  = 0.85            # Minimum softmax probability to fire an event
 INFERENCE_INTERVAL    = 0.1             # Seconds between classification attempts
 CH_1_IDX              = 1              # BrainFlow channel index for channel 1
-CH_2_IDX              = 2              # BrainFlow channel index for channel 2
-CH_3_IDX              = 3              # BrainFlow channel index for channel 3
 
 MODELS_DIR     = os.path.join(os.path.dirname(__file__), "models")
 MODEL_PATH     = os.path.join(MODELS_DIR, "emg_classifier.pt")
@@ -135,9 +133,7 @@ def get_latest_window(board: BoardShim) -> np.ndarray | None:
 
     data = board.get_current_board_data(WINDOW_SIZE)
     ch1  = data[CH_1_IDX, :]
-    ch2  = data[CH_2_IDX, :]
-    ch3  = data[CH_3_IDX, :]
-    return np.stack([ch1, ch2, ch3], axis=1).astype(np.float32)
+    return ch1.reshape(-1, 1).astype(np.float32)
 
 
 def filter_window(window: np.ndarray) -> np.ndarray:

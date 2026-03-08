@@ -30,7 +30,7 @@ from scipy.signal import butter, filtfilt, iirnotch
 # =============================================================================
 SAMPLE_RATE    = 250          # Hz — Cyton default, must match collect.py
 BANDPASS_LOW   = 20           # Hz — lower cutoff (removes motion artifact)
-BANDPASS_HIGH  = 450          # Hz — upper cutoff (removes high-freq noise)
+BANDPASS_HIGH  = 120          # Hz — upper cutoff (must be below Nyquist of 125 Hz at 250 Hz sample rate)
 NOTCH_FREQ     = 60           # Hz — US power line noise
 NOTCH_Q        = 30           # Quality factor for notch filter
 WINDOW_SIZE    = 200          # Samples per window (0.8 seconds)
@@ -179,7 +179,7 @@ def load_session(filepath: str) -> tuple:
             continue
         label = LABEL_MAP[label_str]
 
-        raw = chunk[["channel_1", "channel_2", "channel_3"]].values.astype(np.float32)
+        raw = chunk[["channel_1"]].values.astype(np.float32)
         filtered = filter_channels(raw)
 
         windows, labels = segment_recording(filtered, label)
@@ -188,7 +188,7 @@ def load_session(filepath: str) -> tuple:
             all_labels.append(labels)
 
     if not all_windows:
-        return np.empty((0, WINDOW_SIZE, 3), dtype=np.float32), np.empty((0,), dtype=np.int64)
+        return np.empty((0, WINDOW_SIZE, 1), dtype=np.float32), np.empty((0,), dtype=np.int64)
 
     X = np.concatenate(all_windows, axis=0)
     y = np.concatenate(all_labels,  axis=0)

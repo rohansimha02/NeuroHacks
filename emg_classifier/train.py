@@ -36,13 +36,13 @@ from sklearn.metrics import confusion_matrix, classification_report
 # =============================================================================
 # SETTINGS
 # =============================================================================
-EPOCHS        = 50
+EPOCHS        = 100
 BATCH_SIZE    = 32
 LEARNING_RATE = 0.001
-PATIENCE      = 10          # Early stopping patience (epochs without val improvement)
+PATIENCE      = 15          # Early stopping patience (epochs without val improvement)
 NUM_CLASSES   = 3
 WINDOW_SIZE   = 200
-N_CHANNELS    = 3
+N_CHANNELS    = 1
 MOVEMENTS     = ['strong_grip', 'wrist_extension', 'finger_spread']
 
 DATA_PROC_DIR = os.path.join(os.path.dirname(__file__), "data", "processed")
@@ -91,7 +91,7 @@ class EMGClassifier(nn.Module):
         # GlobalAveragePool collapses the time dimension
         self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
 
-        self.dropout  = nn.Dropout(0.5)
+        self.dropout  = nn.Dropout(0.3)
         self.fc1      = nn.Linear(128, 64)
         self.relu_fc  = nn.ReLU()
         self.fc2      = nn.Linear(64, num_classes)

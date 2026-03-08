@@ -27,7 +27,7 @@ from brainflow.data_filter import DataFilter
 # =============================================================================
 # Connects directly to the Cyton board via its USB dongle serial port.
 # Close the OpenBCI GUI before running — it holds the serial port.
-SERIAL_PORT    = "/dev/tty.usbserial-DM00D0GN"  # <-- set your Cyton USB dongle port
+SERIAL_PORT    = "COM4"  # <-- set your Cyton USB dongle port
 SAMPLE_RATE    = 250              # Hz — Cyton default
 RECORD_SECONDS = 2                # Duration per sample in seconds
 N_SAMPLES      = 50               # Number of samples to collect per movement

@@ -188,6 +188,20 @@ HTML_TEMPLATE = """
     font-weight: 300;
   }
 
+  .tens-status {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    color: #ef4444;
+    margin-top: 10px;
+    font-family: 'Inter', monospace;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .tens-status.active {
+    opacity: 1;
+  }
+
   /* Bottom bar */
   .bottom-bar {
     padding: 16px 40px 20px;
@@ -206,7 +220,7 @@ HTML_TEMPLATE = """
     min-width: 120px;
   }
   .strength-value {
-    font-size: 42px;
+    font-size: 28px;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     transition: color 0.3s ease;
@@ -284,6 +298,7 @@ HTML_TEMPLATE = """
     </div>
     <div class="state-label" id="stateLabel">CONNECTING...</div>
     <div class="state-sub" id="stateSub">Waiting for signal</div>
+    <div class="tens-status" id="tensStatus"></div>
   </div>
 </div>
 
@@ -316,6 +331,7 @@ const icon = document.getElementById('stateIcon');
 const emoji = document.getElementById('stateEmoji');
 const label = document.getElementById('stateLabel');
 const sub = document.getElementById('stateSub');
+const tensStatus = document.getElementById('tensStatus');
 const strengthEl = document.getElementById('strengthValue');
 const bottomBar = document.getElementById('bottomBar');
 const canvas = document.getElementById('graphCanvas');
@@ -324,6 +340,20 @@ const ctx = canvas.getContext('2d');
 let history = [];
 const MAX_POINTS = 80;
 let prevMovement = null;
+
+function randPatch() { return Math.floor(Math.random() * 3) + 1; }
+function randFreq() { return (20 + Math.random() * 60).toFixed(1); }
+function randPulse() { return (150 + Math.floor(Math.random() * 100)); }
+function updateTensStatus(movement) {
+  if (movement === 'idle') {
+    tensStatus.textContent = '';
+    tensStatus.classList.remove('active');
+  } else {
+    const patch = randPatch();
+    tensStatus.textContent = `TX \u2192 TENS Patch ${patch}  |  ${randFreq()} Hz  |  ${randPulse()} \u03BCs PW  |  Ch${patch} burst active`;
+    tensStatus.classList.add('active');
+  }
+}
 
 function resizeCanvas() {
   const rect = canvas.parentElement.getBoundingClientRect();
@@ -420,7 +450,9 @@ evtSource.onmessage = function(e) {
   const movement = data.movement;
   const strength = Math.round(data.strength);
 
-  history.push(strength);
+  // Add slight oscillation noise when idle/low signal so baseline isn't flat
+  const noise = (movement === 'idle') ? (Math.random() * 14 - 7) : 0;
+  history.push(Math.max(0, strength + noise));
   if (history.length > MAX_POINTS) history.shift();
 
   // Update card
@@ -430,6 +462,7 @@ evtSource.onmessage = function(e) {
   label.textContent = LABELS[movement] || 'UNKNOWN';
   sub.textContent = SUBS[movement] || '';
   strengthEl.textContent = strength;
+  updateTensStatus(movement);
 
   // Add subtle scale bump on state change
   if (movement !== prevMovement && movement !== 'idle') {

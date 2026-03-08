@@ -55,7 +55,7 @@ HTML_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NeuroHacks EMG</title>
+<title>Echolimb EMG</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
 
@@ -350,7 +350,7 @@ function updateTensStatus(movement) {
     tensStatus.classList.remove('active');
   } else {
     const patch = randPatch();
-    tensStatus.textContent = `TX \u2192 TENS Patch ${patch}  |  ${randFreq()} Hz  |  ${randPulse()} \u03BCs PW  |  Ch${patch} burst active`;
+    tensStatus.textContent = `TENS Patch ${patch}`;
     tensStatus.classList.add('active');
   }
 }
@@ -589,7 +589,7 @@ def stream():
 
 def main():
     print("\n" + "="*50)
-    print("  NEUROHACKS EMG DASHBOARD")
+    print("  ECHOLIMB DASHBOARD")
     print(f"  Board             : Cyton ({SERIAL_PORT})")
     print(f"  Inference interval: {INFERENCE_INTERVAL}s")
     print(f"  Dashboard         : http://localhost:{WEB_PORT}")

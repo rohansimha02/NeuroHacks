@@ -26,17 +26,13 @@ REQUEST_TIMEOUT    = 0.2    # Seconds — must be short enough not to block infe
 # MOVEMENT_TO_PATTERN defines the route and TENS pulse sequence for each class.
 # tens_sequence is a list of (delay_ms, channel) tuples.
 MOVEMENT_TO_PATTERN = {
-    "strong_grip": {
+    "clench": {
         "route_id":     0,
         "tens_sequence": [(0, 1), (100, 2), (200, 3)],
     },
     "wrist_extension": {
         "route_id":     1,
         "tens_sequence": [(0, 2), (150, 1), (300, 3)],
-    },
-    "finger_spread": {
-        "route_id":     2,
-        "tens_sequence": [(0, 3), (100, 1), (200, 2)],
     },
 }
 # =============================================================================

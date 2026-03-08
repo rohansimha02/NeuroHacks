@@ -33,8 +33,6 @@ RECORD_SECONDS = 2                # Duration per sample in seconds
 N_SAMPLES      = 50               # Number of samples to collect per movement
 TEST_SAMPLES   = 3                # Samples per movement in --test mode
 CH_1_IDX       = 1                # BrainFlow index for N1P
-CH_2_IDX       = 2                # BrainFlow index for N2P
-CH_3_IDX       = 3                # BrainFlow index for N3P
 COUNTDOWN_SECS = 3                # Seconds to count down before recording
 
 MOVEMENTS = ['strong_grip', 'wrist_extension', 'finger_spread']
@@ -80,7 +78,7 @@ def connect_board() -> BoardShim:
 
 def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
     """
-    Record exactly n_samples of raw EMG data from channels 1, 2, and 3.
+    Record exactly n_samples of raw EMG data from channel 1.
 
     Clears the buffer before recording, then waits until enough new samples
     have accumulated.
@@ -90,7 +88,7 @@ def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
         n_samples: Number of samples to record (e.g. 500 for 2 seconds at 250 Hz).
 
     Returns:
-        NumPy array of shape (n_samples, 3) — columns are [ch1, ch2, ch3].
+        NumPy array of shape (n_samples, 1) — single channel.
     """
     # Flush any stale data in the ring buffer
     board.get_board_data()
@@ -109,9 +107,7 @@ def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
 
     data = board.get_board_data()          # shape: (n_board_channels, n_samples)
     ch1 = data[CH_1_IDX, -n_samples:]
-    ch2 = data[CH_2_IDX, -n_samples:]
-    ch3 = data[CH_3_IDX, -n_samples:]
-    return np.stack([ch1, ch2, ch3], axis=1)  # shape: (n_samples, 3)
+    return ch1.reshape(-1, 1)  # shape: (n_samples, 1)
 
 
 def wait_for_space(prompt: str) -> None:
@@ -148,7 +144,7 @@ def run_collection_session(n_samples_per_movement: int) -> list:
         n_samples_per_movement: How many 2-second recordings to capture per class.
 
     Returns:
-        List of dicts with keys: sample_index, channel_1, channel_2, channel_3, label.
+        List of dicts with keys: sample_index, channel_1, label.
         Each row is one sample (one time step within a recording window).
     """
     board = connect_board()
@@ -169,7 +165,7 @@ def run_collection_session(n_samples_per_movement: int) -> list:
                 countdown(COUNTDOWN_SECS)
 
                 n_raw = int(SAMPLE_RATE * RECORD_SECONDS)
-                window = record_sample(board, n_raw)  # shape: (n_raw, 3)
+                window = record_sample(board, n_raw)  # shape: (n_raw, 1)
 
                 print("  RELAX")
 
@@ -178,8 +174,6 @@ def run_collection_session(n_samples_per_movement: int) -> list:
                     all_rows.append({
                         "sample_index": global_sample_idx,
                         "channel_1":    window[step, 0],
-                        "channel_2":    window[step, 1],
-                        "channel_3":    window[step, 2],
                         "label":        movement,
                     })
                 global_sample_idx += 1
@@ -214,7 +208,7 @@ def save_session(rows: list) -> str:
     filename = f"session_{timestamp}.csv"
     filepath = os.path.join(DATA_RAW_DIR, filename)
 
-    fieldnames = ["sample_index", "channel_1", "channel_2", "channel_3", "label"]
+    fieldnames = ["sample_index", "channel_1", "label"]
     with open(filepath, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()

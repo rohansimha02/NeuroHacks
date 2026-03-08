@@ -128,6 +128,27 @@ def extract_features(window: np.ndarray) -> np.ndarray:
     return np.array(features, dtype=np.float32)
 
 
+def normalize_window(window: np.ndarray) -> np.ndarray:
+    """
+    Mean-subtract each channel (remove DC offset) without scaling by std.
+
+    This removes baseline drift between sessions while preserving amplitude
+    differences between movements — which is the primary distinguishing
+    feature with a single EMG channel.
+
+    Args:
+        window: Array of shape (window_size, n_channels).
+
+    Returns:
+        Mean-centered array of the same shape.
+    """
+    normed = np.zeros_like(window)
+    for ch in range(window.shape[1]):
+        sig = window[:, ch]
+        normed[:, ch] = sig - sig.mean()
+    return normed
+
+
 def segment_recording(data: np.ndarray, label: int) -> tuple:
     """
     Slice a single 2-second EMG recording into overlapping windows.
@@ -144,7 +165,8 @@ def segment_recording(data: np.ndarray, label: int) -> tuple:
     windows = []
     start = 0
     while start + WINDOW_SIZE <= len(data):
-        windows.append(data[start : start + WINDOW_SIZE])
+        w = data[start : start + WINDOW_SIZE]
+        windows.append(normalize_window(w))
         start += WINDOW_STEP
 
     if not windows:
@@ -163,7 +185,7 @@ def load_session(filepath: str) -> tuple:
         filepath: Path to a session_*.csv file.
 
     Returns:
-        Tuple (X, y) where X has shape (n_windows, WINDOW_SIZE, 3)
+        Tuple (X, y) where X has shape (n_windows, WINDOW_SIZE, 1)
         and y has shape (n_windows,).
     """
     df = pd.read_csv(filepath)

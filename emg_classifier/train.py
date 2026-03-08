@@ -4,13 +4,13 @@ train.py
 Trains a 1D CNN on processed EMG windows to classify hand/wrist movements.
 
 Architecture:
-    Input (batch, 200, 3)
+    Input (batch, 200, 1)
     -> Conv1D(64, k=3) -> BN -> ReLU
     -> Conv1D(128, k=3) -> BN -> ReLU
     -> MaxPool1D(2)
     -> Conv1D(128, k=3) -> BN -> ReLU
     -> GlobalAveragePool
-    -> Dropout(0.5)
+    -> Dropout(0.3)
     -> Linear(64) -> ReLU
     -> Linear(num_classes)
     -> Softmax
@@ -64,7 +64,7 @@ class EMGClassifier(nn.Module):
     def __init__(self, n_channels: int, window_size: int, num_classes: int):
         """
         Args:
-            n_channels:  Number of EMG input channels (3 for N1P, N2P, N3P).
+            n_channels:  Number of EMG input channels (1 — channel_1 only).
             window_size: Number of time-steps per window (200).
             num_classes: Number of output movement classes (3).
         """
@@ -95,7 +95,6 @@ class EMGClassifier(nn.Module):
         self.fc1      = nn.Linear(128, 64)
         self.relu_fc  = nn.ReLU()
         self.fc2      = nn.Linear(64, num_classes)
-        self.softmax  = nn.Softmax(dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -103,7 +102,9 @@ class EMGClassifier(nn.Module):
             x: Input tensor of shape (batch, window_size, n_channels).
 
         Returns:
-            Class probability tensor of shape (batch, num_classes).
+            Raw logits of shape (batch, num_classes).
+            Use CrossEntropyLoss (applies softmax internally) for training.
+            Apply softmax manually at inference time for probabilities.
         """
         # Permute to (batch, n_channels, window_size) for Conv1d
         x = x.permute(0, 2, 1)
@@ -118,8 +119,7 @@ class EMGClassifier(nn.Module):
 
         x = self.dropout(x)
         x = self.relu_fc(self.fc1(x))
-        x = self.fc2(x)
-        return self.softmax(x)
+        return self.fc2(x)
 
 
 def load_data() -> tuple:

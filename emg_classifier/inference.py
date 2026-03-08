@@ -9,8 +9,7 @@ How it works:
   2. Connect to the Cyton board via BrainFlow
   3. Every INFERENCE_INTERVAL seconds, grab the latest WINDOW_SIZE samples
   4. Filter (bandpass + notch) and run through the model
-  5. If confidence > CONFIDENCE_THRESHOLD and the prediction changed,
-     call handle_prediction() which prints and posts to the Flask hub
+  5. Always fire handle_prediction() with the top class regardless of confidence
 
 Press Ctrl+C to stop. A session summary is printed on exit.
 
@@ -26,7 +25,7 @@ import json
 import numpy as np
 import torch
 
-from preprocess import bandpass_filter, notch_filter, BANDPASS_LOW, BANDPASS_HIGH, NOTCH_FREQ, NOTCH_Q, SAMPLE_RATE
+from preprocess import bandpass_filter, notch_filter, normalize_window, BANDPASS_LOW, BANDPASS_HIGH, NOTCH_FREQ, NOTCH_Q, SAMPLE_RATE
 from train import EMGClassifier, N_CHANNELS, WINDOW_SIZE, NUM_CLASSES
 from hub_integration import send_movement_event
 
@@ -38,8 +37,8 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 # Connects directly to the Cyton board via its USB dongle — must match collect.py.
 # macOS: /dev/tty.usbserial-* | Windows: COM3 (check Device Manager)
 SERIAL_PORT           = "COM4"  # <-- set your Cyton USB dongle port
-CONFIDENCE_THRESHOLD  = 0.85            # Minimum softmax probability to fire an event
-INFERENCE_INTERVAL    = 0.1             # Seconds between classification attempts
+CONFIDENCE_THRESHOLD  = 0.70            # Minimum softmax probability to fire an event
+INFERENCE_INTERVAL    = 0.8             # Seconds between classification attempts (match window duration)
 CH_1_IDX              = 1              # BrainFlow channel index for channel 1
 
 MODELS_DIR     = os.path.join(os.path.dirname(__file__), "models")
@@ -90,7 +89,7 @@ def load_model(model_path: str, label_map_path: str, device: torch.device) -> tu
 
 def connect_board() -> BoardShim:
     """
-    Connect to the OpenBCI Ganglion board via Bluetooth LE.
+    Connect to the OpenBCI Cyton board via its USB dongle serial port.
 
     Returns:
         Active BoardShim instance.
@@ -120,31 +119,34 @@ def connect_board() -> BoardShim:
 
 def get_latest_window(board: BoardShim) -> np.ndarray | None:
     """
-    Read the latest WINDOW_SIZE samples from the board's ring buffer.
+    Wait for WINDOW_SIZE fresh samples, then consume them from the buffer.
+
+    Uses get_board_data() (which flushes) so each inference window contains
+    entirely new data — no overlap with the previous prediction.
 
     Args:
         board: Active BoardShim instance.
 
     Returns:
-        Array of shape (WINDOW_SIZE, 3) or None if not enough data yet.
+        Array of shape (WINDOW_SIZE, 1) or None if not enough data yet.
     """
     if board.get_board_data_count() < WINDOW_SIZE:
         return None
 
-    data = board.get_current_board_data(WINDOW_SIZE)
-    ch1  = data[CH_1_IDX, :]
+    data = board.get_board_data()  # flush buffer — fresh samples only
+    ch1  = data[CH_1_IDX, -WINDOW_SIZE:]
     return ch1.reshape(-1, 1).astype(np.float32)
 
 
 def filter_window(window: np.ndarray) -> np.ndarray:
     """
-    Apply bandpass + notch filter to a single window.
+    Apply bandpass + notch filter, then z-score normalize a single window.
 
     Args:
-        window: Array of shape (WINDOW_SIZE, 3).
+        window: Array of shape (WINDOW_SIZE, 1).
 
     Returns:
-        Filtered array of the same shape.
+        Filtered and normalized array of the same shape.
     """
     filtered = np.zeros_like(window)
     for ch in range(window.shape[1]):
@@ -152,7 +154,7 @@ def filter_window(window: np.ndarray) -> np.ndarray:
         sig = bandpass_filter(sig, BANDPASS_LOW, BANDPASS_HIGH, SAMPLE_RATE)
         sig = notch_filter(sig, NOTCH_FREQ, NOTCH_Q, SAMPLE_RATE)
         filtered[:, ch] = sig
-    return filtered
+    return normalize_window(filtered)
 
 
 def classify_window(
@@ -165,7 +167,7 @@ def classify_window(
     Run a filtered window through the model and return the top prediction.
 
     Args:
-        window:    Filtered array of shape (WINDOW_SIZE, 3).
+        window:    Filtered array of shape (WINDOW_SIZE, 1).
         model:     Loaded EMGClassifier.
         label_map: {int: str} mapping from integer class to movement name.
         device:    Torch device.
@@ -175,9 +177,10 @@ def classify_window(
     """
     tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0).to(device)
     with torch.no_grad():
-        probs = model(tensor).squeeze(0).cpu().numpy()
+        logits = model(tensor)
+        probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
 
-    top_class = int(np.argmax(probs))
+    top_class  = int(np.argmax(probs))
     confidence = float(probs[top_class])
     movement   = label_map.get(top_class, f"class_{top_class}")
     return movement, confidence
@@ -185,7 +188,7 @@ def classify_window(
 
 def handle_prediction(movement: str, confidence: float) -> None:
     """
-    Handle a high-confidence, novel prediction: print it and post to the hub.
+    Fire every interval: print the prediction and post to the hub.
 
     Args:
         movement:   Predicted movement class name.
@@ -202,8 +205,7 @@ def main():
     print("  EMG REAL-TIME INFERENCE")
     print(f"  Device            : {device}")
     print(f"  Board             : Cyton ({SERIAL_PORT})")
-    print(f"  Confidence thresh : {CONFIDENCE_THRESHOLD:.0%}")
-    print(f"  Inference interval: {INFERENCE_INTERVAL}s")
+    print(f"  Inference interval: {INFERENCE_INTERVAL}s (fires every interval)")
     print("="*50 + "\n")
 
     print("  Loading model...")
@@ -215,8 +217,7 @@ def main():
     print("\n  Starting inference loop. Press Ctrl+C to stop.\n")
     print("-" * 50)
 
-    last_prediction   = None
-    detection_counts  = {name: 0 for name in label_map.values()}
+    detection_counts = {name: 0 for name in label_map.values()}
 
     try:
         while True:
@@ -227,14 +228,26 @@ def main():
                 time.sleep(INFERENCE_INTERVAL)
                 continue
 
+            # Debug: print raw signal stats to verify board is sending real data
+            print(f"  [DEBUG] raw: min={window.min():.1f}  max={window.max():.1f}  std={window.std():.1f}")
+
             filtered_window      = filter_window(window)
+            print(f"  [DEBUG] filtered: min={filtered_window.min():.1f}  max={filtered_window.max():.1f}  std={filtered_window.std():.1f}")
             movement, confidence = classify_window(filtered_window, model, label_map, device)
 
-            # Only fire event if confident and prediction changed
-            if confidence >= CONFIDENCE_THRESHOLD and movement != last_prediction:
+            # Debug: print all class probabilities
+            tensor = torch.tensor(filtered_window, dtype=torch.float32).unsqueeze(0).to(device)
+            with torch.no_grad():
+                logits = model(tensor)
+                all_probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+            prob_str = "  ".join(f"{label_map[i]}={all_probs[i]:.1%}" for i in range(len(all_probs)))
+            print(f"  [DEBUG] probs: {prob_str}")
+
+            if confidence >= CONFIDENCE_THRESHOLD:
                 handle_prediction(movement, confidence)
                 detection_counts[movement] += 1
-                last_prediction = movement
+            else:
+                print(f"  (low confidence: {movement} {confidence:.0%} — skipped)")
 
             # Pace the loop to INFERENCE_INTERVAL
             elapsed = time.time() - loop_start

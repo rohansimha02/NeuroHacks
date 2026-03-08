@@ -25,57 +25,64 @@ from brainflow.data_filter import DataFilter
 # =============================================================================
 # SETTINGS — edit these to match your hardware setup
 # =============================================================================
-PORT           = "/dev/ttyUSB0"   # Serial port for the Cyton dongle. Change to
-                                  # "COM3" (Windows) or "/dev/cu.usbserial-*" (Mac)
+# BrainFlow STREAMING_BOARD reads from the OpenBCI GUI's multicast stream.
+# In the GUI: Networking widget -> Protocol: UDP, IP: 225.1.1.1, Port: 6677
+MULTICAST_IP   = "225.1.1.1"     # Default OpenBCI GUI multicast address
+MULTICAST_PORT = 6677             # Default OpenBCI GUI streaming port
+MASTER_BOARD   = 0                # 0 = CYTON_BOARD — tells BrainFlow the data format
 SAMPLE_RATE    = 250              # Hz — Cyton default
 RECORD_SECONDS = 2                # Duration per sample in seconds
-N_SAMPLES      = 25               # Number of samples to collect per movement
+N_SAMPLES      = 50               # Number of samples to collect per movement
 TEST_SAMPLES   = 3                # Samples per movement in --test mode
 CH_1_IDX       = 1                # BrainFlow index for N1P
 CH_2_IDX       = 2                # BrainFlow index for N2P
+CH_3_IDX       = 3                # BrainFlow index for N3P
 COUNTDOWN_SECS = 3                # Seconds to count down before recording
 
-MOVEMENTS = ['rest', 'wrist_flex', 'grip', 'release']
+MOVEMENTS = ['hand_up', 'hand_down', 'fist']
 
 DATA_RAW_DIR = os.path.join(os.path.dirname(__file__), "data", "raw")
 # =============================================================================
 
 
-def connect_board(port: str) -> BoardShim:
+def connect_board() -> BoardShim:
     """
-    Connect to the OpenBCI Cyton board via BrainFlow.
+    Connect to the OpenBCI GUI's multicast stream via BrainFlow STREAMING_BOARD.
 
-    Args:
-        port: Serial port string (e.g. '/dev/ttyUSB0' or 'COM3').
+    Requires the OpenBCI GUI to already be running with the Networking widget
+    configured: Protocol=UDP, IP=225.1.1.1, Port=6677, and streaming started.
 
     Returns:
         An initialized and streaming BoardShim instance.
 
     Raises:
-        SystemExit: If the board cannot be connected.
+        SystemExit: If the stream cannot be reached.
     """
     params = BrainFlowInputParams()
-    params.serial_port = port
+    params.ip_address   = MULTICAST_IP
+    params.ip_port      = MULTICAST_PORT
+    params.master_board = MASTER_BOARD   # Tells BrainFlow the data layout (Cyton)
 
-    board = BoardShim(BoardIds.CYTON_BOARD.value, params)
+    board = BoardShim(BoardIds.STREAMING_BOARD.value, params)
 
     try:
         board.prepare_session()
         board.start_stream()
-        print(f"  Connected to Cyton board on {port}")
-        time.sleep(2)  # Let the board stabilize before reading
+        print(f"  Connected to OpenBCI GUI stream at {MULTICAST_IP}:{MULTICAST_PORT}")
+        time.sleep(2)  # Let the buffer fill before reading
         return board
     except Exception as e:
-        print(f"\n[ERROR] Could not connect to Cyton board on '{port}'.")
-        print("  -> Is the USB dongle plugged in?")
-        print("  -> Is the board powered on and paired?")
+        print(f"\n[ERROR] Could not connect to OpenBCI GUI stream at {MULTICAST_IP}:{MULTICAST_PORT}.")
+        print("  -> Is the OpenBCI GUI open and streaming?")
+        print("  -> Networking widget: Protocol=UDP, IP=225.1.1.1, Port=6677")
+        print("  -> Make sure you clicked 'Start Data Stream' in the GUI.")
         print(f"  -> BrainFlow error: {e}")
         sys.exit(1)
 
 
 def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
     """
-    Record exactly n_samples of raw EMG data from channels 1 and 2.
+    Record exactly n_samples of raw EMG data from channels 1, 2, and 3.
 
     Clears the buffer before recording, then waits until enough new samples
     have accumulated.
@@ -85,7 +92,7 @@ def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
         n_samples: Number of samples to record (e.g. 500 for 2 seconds at 250 Hz).
 
     Returns:
-        NumPy array of shape (n_samples, 2) — columns are [channel_1, channel_2].
+        NumPy array of shape (n_samples, 3) — columns are [ch1, ch2, ch3].
     """
     # Flush any stale data in the ring buffer
     board.get_board_data()
@@ -105,7 +112,8 @@ def record_sample(board: BoardShim, n_samples: int) -> np.ndarray:
     data = board.get_board_data()          # shape: (n_board_channels, n_samples)
     ch1 = data[CH_1_IDX, -n_samples:]
     ch2 = data[CH_2_IDX, -n_samples:]
-    return np.stack([ch1, ch2], axis=1)   # shape: (n_samples, 2)
+    ch3 = data[CH_3_IDX, -n_samples:]
+    return np.stack([ch1, ch2, ch3], axis=1)  # shape: (n_samples, 3)
 
 
 def wait_for_space(prompt: str) -> None:
@@ -142,10 +150,10 @@ def run_collection_session(n_samples_per_movement: int) -> list:
         n_samples_per_movement: How many 2-second recordings to capture per class.
 
     Returns:
-        List of dicts with keys: sample_index, channel_1, channel_2, label.
+        List of dicts with keys: sample_index, channel_1, channel_2, channel_3, label.
         Each row is one sample (one time step within a recording window).
     """
-    board = connect_board(PORT)
+    board = connect_board()
     all_rows = []
     global_sample_idx = 0
 
@@ -163,7 +171,7 @@ def run_collection_session(n_samples_per_movement: int) -> list:
                 countdown(COUNTDOWN_SECS)
 
                 n_raw = int(SAMPLE_RATE * RECORD_SECONDS)
-                window = record_sample(board, n_raw)  # shape: (n_raw, 2)
+                window = record_sample(board, n_raw)  # shape: (n_raw, 3)
 
                 print("  RELAX")
 
@@ -173,6 +181,7 @@ def run_collection_session(n_samples_per_movement: int) -> list:
                         "sample_index": global_sample_idx,
                         "channel_1":    window[step, 0],
                         "channel_2":    window[step, 1],
+                        "channel_3":    window[step, 2],
                         "label":        movement,
                     })
                 global_sample_idx += 1
@@ -207,7 +216,7 @@ def save_session(rows: list) -> str:
     filename = f"session_{timestamp}.csv"
     filepath = os.path.join(DATA_RAW_DIR, filename)
 
-    fieldnames = ["sample_index", "channel_1", "channel_2", "label"]
+    fieldnames = ["sample_index", "channel_1", "channel_2", "channel_3", "label"]
     with open(filepath, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
@@ -232,7 +241,7 @@ def main():
     print(f"  Movements : {MOVEMENTS}")
     print(f"  Samples   : {n_samples} per movement")
     print(f"  Duration  : {RECORD_SECONDS}s per sample")
-    print(f"  Board port: {PORT}")
+    print(f"  Stream     : {MULTICAST_IP}:{MULTICAST_PORT} (OpenBCI GUI)")
     if args.test:
         print("  [TEST MODE ACTIVE]")
     print("="*50 + "\n")

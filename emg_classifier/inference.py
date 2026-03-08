@@ -35,11 +35,16 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 # =============================================================================
 # SETTINGS
 # =============================================================================
-PORT                  = "/dev/ttyUSB0"  # Serial port — same as collect.py
+# BrainFlow STREAMING_BOARD reads from the OpenBCI GUI's multicast stream.
+# In the GUI: Networking widget -> Protocol: UDP, IP: 225.1.1.1, Port: 6677
+MULTICAST_IP          = "225.1.1.1"
+MULTICAST_PORT        = 6677
+MASTER_BOARD          = 0               # 0 = CYTON_BOARD — data format hint
 CONFIDENCE_THRESHOLD  = 0.85            # Minimum softmax probability to fire an event
 INFERENCE_INTERVAL    = 0.1             # Seconds between classification attempts
 CH_1_IDX              = 1              # BrainFlow channel index for N1P
 CH_2_IDX              = 2              # BrainFlow channel index for N2P
+CH_3_IDX              = 3              # BrainFlow channel index for N3P
 
 MODELS_DIR     = os.path.join(os.path.dirname(__file__), "models")
 MODEL_PATH     = os.path.join(MODELS_DIR, "emg_classifier.pt")
@@ -87,33 +92,36 @@ def load_model(model_path: str, label_map_path: str, device: torch.device) -> tu
     return model, label_map
 
 
-def connect_board(port: str) -> BoardShim:
+def connect_board() -> BoardShim:
     """
-    Connect to the OpenBCI Cyton board and start streaming.
+    Connect to the OpenBCI GUI's multicast stream via BrainFlow STREAMING_BOARD.
 
-    Args:
-        port: Serial port string.
+    Requires the OpenBCI GUI to be running with the Networking widget set to:
+    Protocol=UDP, IP=225.1.1.1, Port=6677, and data stream started.
 
     Returns:
         Active BoardShim instance.
 
     Raises:
-        SystemExit: If the board cannot be reached.
+        SystemExit: If the stream cannot be reached.
     """
     params = BrainFlowInputParams()
-    params.serial_port = port
+    params.ip_address   = MULTICAST_IP
+    params.ip_port      = MULTICAST_PORT
+    params.master_board = MASTER_BOARD
 
-    board = BoardShim(BoardIds.CYTON_BOARD.value, params)
+    board = BoardShim(BoardIds.STREAMING_BOARD.value, params)
     try:
         board.prepare_session()
         board.start_stream()
-        print(f"  Connected to Cyton board on {port}")
-        time.sleep(2)  # Let the board stabilize
+        print(f"  Connected to OpenBCI GUI stream at {MULTICAST_IP}:{MULTICAST_PORT}")
+        time.sleep(2)  # Let the buffer fill
         return board
     except Exception as e:
-        print(f"\n[ERROR] Could not connect to Cyton board on '{port}'.")
-        print("  -> Is the USB dongle plugged in?")
-        print("  -> Is the board powered on and paired?")
+        print(f"\n[ERROR] Could not connect to OpenBCI GUI stream at {MULTICAST_IP}:{MULTICAST_PORT}.")
+        print("  -> Is the OpenBCI GUI open and streaming?")
+        print("  -> Networking widget: Protocol=UDP, IP=225.1.1.1, Port=6677")
+        print("  -> Make sure you clicked 'Start Data Stream' in the GUI.")
         print(f"  -> BrainFlow error: {e}")
         sys.exit(1)
 
@@ -126,7 +134,7 @@ def get_latest_window(board: BoardShim) -> np.ndarray | None:
         board: Active BoardShim instance.
 
     Returns:
-        Array of shape (WINDOW_SIZE, 2) or None if not enough data yet.
+        Array of shape (WINDOW_SIZE, 3) or None if not enough data yet.
     """
     if board.get_board_data_count() < WINDOW_SIZE:
         return None
@@ -134,7 +142,8 @@ def get_latest_window(board: BoardShim) -> np.ndarray | None:
     data = board.get_current_board_data(WINDOW_SIZE)
     ch1  = data[CH_1_IDX, :]
     ch2  = data[CH_2_IDX, :]
-    return np.stack([ch1, ch2], axis=1).astype(np.float32)
+    ch3  = data[CH_3_IDX, :]
+    return np.stack([ch1, ch2, ch3], axis=1).astype(np.float32)
 
 
 def filter_window(window: np.ndarray) -> np.ndarray:
@@ -142,7 +151,7 @@ def filter_window(window: np.ndarray) -> np.ndarray:
     Apply bandpass + notch filter to a single window.
 
     Args:
-        window: Array of shape (WINDOW_SIZE, 2).
+        window: Array of shape (WINDOW_SIZE, 3).
 
     Returns:
         Filtered array of the same shape.
@@ -166,7 +175,7 @@ def classify_window(
     Run a filtered window through the model and return the top prediction.
 
     Args:
-        window:    Filtered array of shape (WINDOW_SIZE, 2).
+        window:    Filtered array of shape (WINDOW_SIZE, 3).
         model:     Loaded EMGClassifier.
         label_map: {int: str} mapping from integer class to movement name.
         device:    Torch device.
@@ -202,7 +211,7 @@ def main():
     print("\n" + "="*50)
     print("  EMG REAL-TIME INFERENCE")
     print(f"  Device            : {device}")
-    print(f"  Board port        : {PORT}")
+    print(f"  Stream            : {MULTICAST_IP}:{MULTICAST_PORT} (OpenBCI GUI)")
     print(f"  Confidence thresh : {CONFIDENCE_THRESHOLD:.0%}")
     print(f"  Inference interval: {INFERENCE_INTERVAL}s")
     print("="*50 + "\n")
@@ -211,7 +220,7 @@ def main():
     model, label_map = load_model(MODEL_PATH, LABEL_MAP_PATH, device)
 
     print("\n  Connecting to board...")
-    board = connect_board(PORT)
+    board = connect_board()
 
     print("\n  Starting inference loop. Press Ctrl+C to stop.\n")
     print("-" * 50)

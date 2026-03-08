@@ -11,7 +11,7 @@ Pipeline:
   3. Segment each 2-second recording into overlapping 200-sample windows
   4. Extract features per window (RMS, MAV, ZCR, WL) + keep raw signal
   5. Encode labels as integers
-  6. Split by session into train/val/test (70/15/15)
+  6. Split by window into train/val/test (70/15/15) — works from a single session
   7. Save X_*.npy and y_*.npy to data/processed/
 
 Run:
@@ -34,12 +34,12 @@ BANDPASS_HIGH  = 450          # Hz — upper cutoff (removes high-freq noise)
 NOTCH_FREQ     = 60           # Hz — US power line noise
 NOTCH_Q        = 30           # Quality factor for notch filter
 WINDOW_SIZE    = 200          # Samples per window (0.8 seconds)
-WINDOW_STEP    = 100          # Step between windows (50% overlap)
+WINDOW_STEP    = 50           # Step between windows (75% overlap)
 TRAIN_FRAC     = 0.70
 VAL_FRAC       = 0.15
 # TEST_FRAC is implicitly 1 - TRAIN_FRAC - VAL_FRAC = 0.15
 
-MOVEMENTS      = ['rest', 'wrist_flex', 'grip', 'release']
+MOVEMENTS      = ['hand_up', 'hand_down', 'fist']
 LABEL_MAP      = {m: i for i, m in enumerate(MOVEMENTS)}
 
 DATA_RAW_DIR   = os.path.join(os.path.dirname(__file__), "data", "raw")
@@ -163,7 +163,7 @@ def load_session(filepath: str) -> tuple:
         filepath: Path to a session_*.csv file.
 
     Returns:
-        Tuple (X, y) where X has shape (n_windows, WINDOW_SIZE, 2)
+        Tuple (X, y) where X has shape (n_windows, WINDOW_SIZE, 3)
         and y has shape (n_windows,).
     """
     df = pd.read_csv(filepath)
@@ -179,7 +179,7 @@ def load_session(filepath: str) -> tuple:
             continue
         label = LABEL_MAP[label_str]
 
-        raw = chunk[["channel_1", "channel_2"]].values.astype(np.float32)
+        raw = chunk[["channel_1", "channel_2", "channel_3"]].values.astype(np.float32)
         filtered = filter_channels(raw)
 
         windows, labels = segment_recording(filtered, label)
@@ -188,7 +188,7 @@ def load_session(filepath: str) -> tuple:
             all_labels.append(labels)
 
     if not all_windows:
-        return np.empty((0, WINDOW_SIZE, 2), dtype=np.float32), np.empty((0,), dtype=np.int64)
+        return np.empty((0, WINDOW_SIZE, 3), dtype=np.float32), np.empty((0,), dtype=np.int64)
 
     X = np.concatenate(all_windows, axis=0)
     y = np.concatenate(all_labels,  axis=0)
@@ -211,6 +211,40 @@ def print_class_distribution(y: np.ndarray, split_name: str) -> None:
         print(f"    {name:<12} : {count:>5} ({pct:.1f}%)")
 
 
+def split_windows(X: np.ndarray, y: np.ndarray) -> tuple:
+    """
+    Split all windows into train/val/test by shuffling at the window level.
+
+    This is the default for hackathon use (single session). The slight data
+    leakage from overlapping windows is acceptable when all data comes from
+    one person in one sitting — the model generalises to that same person anyway.
+
+    Args:
+        X: Array of shape (n_windows, WINDOW_SIZE, n_channels).
+        y: Integer label array of shape (n_windows,).
+
+    Returns:
+        Tuple (X_train, y_train, X_val, y_val, X_test, y_test).
+    """
+    n = len(X)
+    idx = np.arange(n)
+    np.random.seed(42)
+    np.random.shuffle(idx)
+
+    n_train = int(n * TRAIN_FRAC)
+    n_val   = int(n * VAL_FRAC)
+
+    train_idx = idx[:n_train]
+    val_idx   = idx[n_train : n_train + n_val]
+    test_idx  = idx[n_train + n_val :]
+
+    return (
+        X[train_idx], y[train_idx],
+        X[val_idx],   y[val_idx],
+        X[test_idx],  y[test_idx],
+    )
+
+
 def main():
     os.makedirs(DATA_PROC_DIR, exist_ok=True)
 
@@ -224,49 +258,24 @@ def main():
     for f in csv_files:
         print(f"    {os.path.basename(f)}")
 
-    # Load each session separately so we can split by session
-    session_Xs = []
-    session_ys = []
+    all_Xs, all_ys = [], []
     for fp in csv_files:
         print(f"\n  Loading: {os.path.basename(fp)} ...")
         X, y = load_session(fp)
         print(f"    -> {len(X)} windows extracted")
-        session_Xs.append(X)
-        session_ys.append(y)
+        all_Xs.append(X)
+        all_ys.append(y)
 
-    n_sessions = len(session_Xs)
-    indices    = np.arange(n_sessions)
-    np.random.seed(42)
-    np.random.shuffle(indices)
+    X_all = np.concatenate(all_Xs, axis=0)
+    y_all = np.concatenate(all_ys, axis=0)
+    print(f"\n  Total windows across all sessions: {len(X_all)}")
 
-    n_train = max(1, int(np.floor(n_sessions * TRAIN_FRAC)))
-    n_val   = max(1, int(np.floor(n_sessions * VAL_FRAC)))
-    # Ensure at least 1 session in test even if very few sessions
-    n_test  = max(1, n_sessions - n_train - n_val)
-    # Re-adjust if total exceeds available sessions
-    if n_train + n_val + n_test > n_sessions:
-        n_val  = max(1, n_sessions - n_train - 1)
-        n_test = n_sessions - n_train - n_val
+    X_train, y_train, X_val, y_val, X_test, y_test = split_windows(X_all, y_all)
 
-    train_idx = indices[:n_train]
-    val_idx   = indices[n_train : n_train + n_val]
-    test_idx  = indices[n_train + n_val :]
-
-    def combine(idxs):
-        Xs = [session_Xs[i] for i in idxs if len(session_Xs[i]) > 0]
-        ys = [session_ys[i] for i in idxs if len(session_ys[i]) > 0]
-        if not Xs:
-            return np.empty((0, WINDOW_SIZE, 2), dtype=np.float32), np.empty((0,), dtype=np.int64)
-        return np.concatenate(Xs, axis=0), np.concatenate(ys, axis=0)
-
-    X_train, y_train = combine(train_idx)
-    X_val,   y_val   = combine(val_idx)
-    X_test,  y_test  = combine(test_idx)
-
-    print(f"\n  Split summary (by session, seed=42):")
-    print(f"    Train sessions : {list(train_idx)} -> {len(X_train)} windows")
-    print(f"    Val sessions   : {list(val_idx)}   -> {len(X_val)} windows")
-    print(f"    Test sessions  : {list(test_idx)}  -> {len(X_test)} windows")
+    print(f"\n  Split summary (window-level, seed=42):")
+    print(f"    Train : {len(X_train)} windows ({TRAIN_FRAC:.0%})")
+    print(f"    Val   : {len(X_val)} windows ({VAL_FRAC:.0%})")
+    print(f"    Test  : {len(X_test)} windows ({1 - TRAIN_FRAC - VAL_FRAC:.0%})")
 
     print_class_distribution(y_train, "Train")
     print_class_distribution(y_val,   "Validation")

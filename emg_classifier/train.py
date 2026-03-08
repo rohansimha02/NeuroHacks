@@ -4,7 +4,7 @@ train.py
 Trains a 1D CNN on processed EMG windows to classify hand/wrist movements.
 
 Architecture:
-    Input (batch, 200, 2)
+    Input (batch, 200, 3)
     -> Conv1D(64, k=3) -> BN -> ReLU
     -> Conv1D(128, k=3) -> BN -> ReLU
     -> MaxPool1D(2)
@@ -40,10 +40,10 @@ EPOCHS        = 50
 BATCH_SIZE    = 32
 LEARNING_RATE = 0.001
 PATIENCE      = 10          # Early stopping patience (epochs without val improvement)
-NUM_CLASSES   = 4
+NUM_CLASSES   = 3
 WINDOW_SIZE   = 200
-N_CHANNELS    = 2
-MOVEMENTS     = ['rest', 'wrist_flex', 'grip', 'release']
+N_CHANNELS    = 3
+MOVEMENTS     = ['hand_up', 'hand_down', 'fist']
 
 DATA_PROC_DIR = os.path.join(os.path.dirname(__file__), "data", "processed")
 MODELS_DIR    = os.path.join(os.path.dirname(__file__), "models")
@@ -64,9 +64,9 @@ class EMGClassifier(nn.Module):
     def __init__(self, n_channels: int, window_size: int, num_classes: int):
         """
         Args:
-            n_channels:  Number of EMG input channels (2 for N1P and N2P).
+            n_channels:  Number of EMG input channels (3 for N1P, N2P, N3P).
             window_size: Number of time-steps per window (200).
-            num_classes: Number of output movement classes (4).
+            num_classes: Number of output movement classes (3).
         """
         super().__init__()
 

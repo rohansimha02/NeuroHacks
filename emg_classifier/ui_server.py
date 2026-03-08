@@ -29,7 +29,7 @@ from brainflow.board_shim import BoardShim, BrainFlowInputParams, BoardIds
 # =============================================================================
 # SETTINGS
 # =============================================================================
-SERIAL_PORT        = "COM4"
+SERIAL_PORT        = "/dev/cu.usbserial-D200QELI"
 INFERENCE_INTERVAL = 0.3
 CH_1_IDX           = 1
 WEB_PORT           = 8080

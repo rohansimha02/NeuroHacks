@@ -7,7 +7,7 @@ Unity VR arm and TENS stimulation device.
 Usage:
     from hub_integration import send_movement_event, send_feedback
 
-    send_movement_event("hand_up", confidence=0.92)
+    send_movement_event("strong_grip", confidence=0.92)
     send_feedback(rating=1)
 
 The Flask hub is expected to be running at HUB_URL (default: http://localhost:5000).
@@ -26,15 +26,15 @@ REQUEST_TIMEOUT    = 0.2    # Seconds — must be short enough not to block infe
 # MOVEMENT_TO_PATTERN defines the route and TENS pulse sequence for each class.
 # tens_sequence is a list of (delay_ms, channel) tuples.
 MOVEMENT_TO_PATTERN = {
-    "hand_up": {
+    "strong_grip": {
         "route_id":     0,
         "tens_sequence": [(0, 1), (100, 2), (200, 3)],
     },
-    "hand_down": {
+    "wrist_extension": {
         "route_id":     1,
         "tens_sequence": [(0, 2), (150, 1), (300, 3)],
     },
-    "fist": {
+    "finger_spread": {
         "route_id":     2,
         "tens_sequence": [(0, 3), (100, 1), (200, 2)],
     },

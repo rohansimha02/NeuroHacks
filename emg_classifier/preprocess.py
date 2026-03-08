@@ -39,7 +39,7 @@ TRAIN_FRAC     = 0.70
 VAL_FRAC       = 0.15
 # TEST_FRAC is implicitly 1 - TRAIN_FRAC - VAL_FRAC = 0.15
 
-MOVEMENTS      = ['hand_up', 'hand_down', 'fist']
+MOVEMENTS      = ['strong_grip', 'wrist_extension', 'finger_spread']
 LABEL_MAP      = {m: i for i, m in enumerate(MOVEMENTS)}
 
 DATA_RAW_DIR   = os.path.join(os.path.dirname(__file__), "data", "raw")

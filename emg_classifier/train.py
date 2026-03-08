@@ -43,7 +43,7 @@ PATIENCE      = 10          # Early stopping patience (epochs without val improv
 NUM_CLASSES   = 3
 WINDOW_SIZE   = 200
 N_CHANNELS    = 3
-MOVEMENTS     = ['hand_up', 'hand_down', 'fist']
+MOVEMENTS     = ['strong_grip', 'wrist_extension', 'finger_spread']
 
 DATA_PROC_DIR = os.path.join(os.path.dirname(__file__), "data", "processed")
 MODELS_DIR    = os.path.join(os.path.dirname(__file__), "models")

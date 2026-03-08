@@ -39,7 +39,7 @@ CH_2_IDX       = 2                # BrainFlow index for N2P
 CH_3_IDX       = 3                # BrainFlow index for N3P
 COUNTDOWN_SECS = 3                # Seconds to count down before recording
 
-MOVEMENTS = ['hand_up', 'hand_down', 'fist']
+MOVEMENTS = ['strong_grip', 'wrist_extension', 'finger_spread']
 
 DATA_RAW_DIR = os.path.join(os.path.dirname(__file__), "data", "raw")
 # =============================================================================

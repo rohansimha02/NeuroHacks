@@ -6,7 +6,8 @@ A real-time EMG (electromyography) classification system that detects hand and w
 
 1. **Collect** EMG signals from your forearm while performing hand gestures
 2. **Train** a 1D convolutional neural network on the processed signals
-3. **Infer** movements in real-time and stream them to a VR application
+3. **Infer** real-time movements and stream to AR application for psychological support
+4. **Apply** recommended signals via TENs devices to alleviate physical pain
 
 ### Supported Movements
 

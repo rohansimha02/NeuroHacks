@@ -1,16 +1,20 @@
 """
 inference.py
 ------------------
-ML EMG classification using signal strength thresholds.
+ML EMG classification using the trained 1D CNN model.
 
 Run:
     python inference.py
 """
 
+import json
+import os
 import sys
 import time
 
 import numpy as np
+import torch
+import torch.nn as nn
 
 from preprocess import (
     bandpass_filter, notch_filter, normalize_window,
@@ -28,21 +32,71 @@ SERIAL_PORT        = "COM4"
 INFERENCE_INTERVAL = 0.8
 CH_1_IDX           = 1
 
-# Thresholds on RMS signal strength
-CLENCH_LOW         = 36
-CLENCH_HIGH        = 75
-EXTENSION_LOW      = 95
+MODELS_DIR      = os.path.join(os.path.dirname(__file__), "models")
+MODEL_PATH      = os.path.join(MODELS_DIR, "emg_classifier.pt")
+LABEL_MAP_PATH  = os.path.join(MODELS_DIR, "label_map.json")
+
+N_CHANNELS  = 1
+NUM_CLASSES = 3
 # =============================================================================
 
 
-def classify_signal(rms: float) -> str:
-    """Classify based on RMS signal strength thresholds."""
-    if CLENCH_LOW <= rms <= CLENCH_HIGH:
-        return "clench"
-    elif rms >= EXTENSION_LOW:
-        return "wrist_extension"
-    else:
-        return "idle"
+class EMGClassifier(nn.Module):
+    def __init__(self, n_channels: int, num_classes: int):
+        super().__init__()
+        self.conv_block1 = nn.Sequential(
+            nn.Conv1d(n_channels, 64, kernel_size=3, padding=1),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+        )
+        self.conv_block2 = nn.Sequential(
+            nn.Conv1d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+        )
+        self.pool = nn.MaxPool1d(kernel_size=2)
+        self.conv_block3 = nn.Sequential(
+            nn.Conv1d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm1d(128),
+            nn.ReLU(),
+        )
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.dropout  = nn.Dropout(0.3)
+        self.fc1      = nn.Linear(128, 64)
+        self.relu_fc  = nn.ReLU()
+        self.fc2      = nn.Linear(64, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.permute(0, 2, 1)
+        x = self.conv_block1(x)
+        x = self.conv_block2(x)
+        x = self.pool(x)
+        x = self.conv_block3(x)
+        x = self.global_avg_pool(x)
+        x = x.squeeze(-1)
+        x = self.dropout(x)
+        x = self.relu_fc(self.fc1(x))
+        return self.fc2(x)
+
+
+def load_model() -> tuple:
+    if not os.path.exists(MODEL_PATH):
+        print(f"[ERROR] Model not found: {MODEL_PATH}")
+        print("  -> Run train.py first.")
+        sys.exit(1)
+    if not os.path.exists(LABEL_MAP_PATH):
+        print(f"[ERROR] Label map not found: {LABEL_MAP_PATH}")
+        print("  -> Run train.py first.")
+        sys.exit(1)
+
+    with open(LABEL_MAP_PATH) as f:
+        label_map = json.load(f)  # {"0": "strong_grip", ...}
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = EMGClassifier(N_CHANNELS, NUM_CLASSES).to(device)
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.eval()
+    return model, label_map, device
 
 
 def connect_board() -> BoardShim:
@@ -78,24 +132,35 @@ def filter_window(window: np.ndarray) -> np.ndarray:
     return normalize_window(filtered)
 
 
+def classify_window(model, window: np.ndarray, label_map: dict, device) -> tuple:
+    """Run the CNN on a filtered window. Returns (label, confidence)."""
+    tensor = torch.tensor(window, dtype=torch.float32).unsqueeze(0).to(device)
+    with torch.no_grad():
+        logits = model(tensor)
+        probs = torch.softmax(logits, dim=1).squeeze(0)
+    idx = int(probs.argmax().item())
+    return label_map[str(idx)], float(probs[idx].item())
+
+
 def main():
     print("\n" + "="*50)
-    print("  EMG REAL-TIME INFERENCE (RULE-BASED)")
+    print("  EMG REAL-TIME INFERENCE (ML MODEL)")
     print(f"  Board             : Cyton ({SERIAL_PORT})")
     print(f"  Inference interval: {INFERENCE_INTERVAL}s")
-    print(f"  Thresholds:")
-    print(f"    IDLE            : strength < {CLENCH_LOW} or {CLENCH_HIGH+1}-{EXTENSION_LOW-1}")
-    print(f"    CLENCH          : {CLENCH_LOW} - {CLENCH_HIGH}")
-    print(f"    WRIST EXTENSION : {EXTENSION_LOW}+")
+    print(f"  Model             : {MODEL_PATH}")
     print("="*50 + "\n")
 
-    print("  Connecting to board...")
+    print("  Loading model...")
+    model, label_map, device = load_model()
+    print(f"  Model loaded. Classes: {list(label_map.values())}")
+
+    print("\n  Connecting to board...")
     board = connect_board()
 
     print("\n  Starting inference loop. Press Ctrl+C to stop.\n")
     print("-" * 50)
 
-    detection_counts = {"clench": 0, "wrist_extension": 0, "idle": 0}
+    detection_counts = {name: 0 for name in label_map.values()}
 
     try:
         while True:
@@ -107,19 +172,12 @@ def main():
                 continue
 
             filtered = filter_window(window)
-
-            # RMS = signal strength
-            sig = filtered[:, 0]
-            rms = float(np.sqrt(np.mean(sig ** 2)))
-
-            movement = classify_signal(rms)
+            movement, confidence = classify_window(model, filtered, label_map, device)
             detection_counts[movement] += 1
 
-            if movement == "idle":
-                print(f"  --- IDLE (strength={rms:.0f})")
-            else:
-                print(f"  >>> {movement.upper():<18} (strength={rms:.0f})")
-                send_movement_event(movement, 1.0)
+            print(f"  >>> {movement.upper():<20} (conf={confidence:.2f})")
+            if movement != "idle":
+                send_movement_event(movement, confidence)
 
             elapsed = time.time() - loop_start
             sleep_time = INFERENCE_INTERVAL - elapsed
@@ -131,7 +189,7 @@ def main():
         print("  Session stopped by user.")
         print("\n  Detection summary:")
         for movement, count in detection_counts.items():
-            print(f"    {movement:<18} : {count} times")
+            print(f"    {movement:<20} : {count} times")
         print("="*50)
 
     finally:

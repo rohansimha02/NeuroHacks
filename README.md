@@ -1,6 +1,6 @@
 # NeuroHacks — EMG-Powered VR Hand Control
 
-A real-time EMG (electromyography) classification system that detects intended hand and wrist movements from nerve activity via an OpenBCI Cyton board, and then classifies them with a 1D CNN, and drives VR arm animations in Unity.
+A real-time EMG (electromyography) classification system that detects intended hand and wrist movements from nerve activity via an OpenBCI Cyton board, and then classifies them with a 1D CNN, and drives VR arm animations in Unity. This system is aimed at helping with pain relief for amputees experiencing phantom limb pain.
 
 ## How It Works
 

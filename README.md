@@ -15,7 +15,7 @@ A real-time EMG (electromyography) classification system that detects hand and w
 |---|---|
 | `strong_grip` | Clenching the hand |
 | `wrist_extension` | Extending the wrist upward |
-| `finger_spread` | Spreading fingers apart |
+| `idle` | No significant movement |
 
 ## Project Structure
 
